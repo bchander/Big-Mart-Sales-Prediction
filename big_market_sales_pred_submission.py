@@ -16,6 +16,7 @@ Modified on
 # %%
 import os
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import LabelEncoder
@@ -70,7 +71,7 @@ for feature in features_to_inspect:
     plt.show()
 '''
 # %%
-#------Filling Missing Values with reasonable information------#
+#------Based on EDA and visual analysis, doing some data processing------#
 train.isnull().sum()
 
 for col in ['Outlet_Size']:
@@ -81,6 +82,16 @@ for col in ['Item_Weight']:
     mean = train[col].mean()
     train[col] = train[col].fillna(mean)
     test[col] = test[col].fillna(mean)
+
+# Limiting outliers in train data for Item_visibility
+lower = train['Item_Visibility'].quantile(0.01)
+upper = train['Item_Visibility'].quantile(0.99)
+train['Item_Visibility'] = train['Item_Visibility'].clip(lower, upper)
+
+# Limiting outliers in test data for Item_visibility
+lower = test['Item_Visibility'].quantile(0.01)
+upper = test['Item_Visibility'].quantile(0.99)
+test['Item_Visibility'] = test['Item_Visibility'].clip(lower, upper)
 
 # Checking if any rows have null cells
 test.isnull().sum()
@@ -117,6 +128,10 @@ full_encoded = pd.get_dummies(full, columns=cat_cols, dtype=int)
 train_encoded = full_encoded.iloc[:len(train), :].reset_index(drop=True)
 test_encoded = full_encoded.iloc[len(train):, :].reset_index(drop=True)
 
+#-----Creating interaction features-----#
+train['MRP_Visibility_Interaction'] = train['Item_MRP'] * train['Item_Visibility']
+test['MRP_Visibility_Interaction'] = test['Item_MRP'] * test['Item_Visibility']
+
 # %%
 
 # Merge encoded columns back
@@ -133,19 +148,20 @@ sns.heatmap(df_train.corr(), cmap="BrBG", annot = False, annot_kws={"size":16}, 
 # %%
 from xgboost import XGBRegressor
 
-XGB_model = XGBRegressor(booster = 'gbtree', eta = 0.1, max_depth = 16, 
+XGB_model = XGBRegressor(booster = 'gbtree', eta = 0.01, max_depth = 5, 
                          objective = 'reg:squarederror', #[default=reg:squarederror]
-                         max_delta_step =0, subsample =0.5, 
-                         n_estimators=300, learning_rate=0.05, 
-                         colsample_bytree =0.7, alpha=0, gamma=0, 
-                         reg_alpha=0.1, # L1 regularization
-                         reg_lambda=0.4, # L2 regularization
-                         tree_method = 'approx') #For large datasets, tree_method='hist' is faster.
+                         max_delta_step =0, subsample =0.8, 
+                         n_estimators=1000, learning_rate=0.01, 
+                         colsample_bytree =1, alpha=0.6, gamma=0.4, 
+                         reg_alpha=1, # L1 regularization
+                         reg_lambda=1, # L2 regularization
+                         tree_method = 'exact') #For large datasets, tree_method='hist' is faster.
 #updater = 'prune', max_leaf_nodes =, scale_pos_weight =,  )
 
 history_XGB = XGB_model.fit(df_train_infer, df_train_Target)
 
 prediction_XGB = XGB_model.predict(df_test)
+prediction_XGB = np.clip(prediction_XGB, 0, None)
 
 # %%
 
